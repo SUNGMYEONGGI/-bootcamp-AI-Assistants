@@ -1,0 +1,276 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# RAG QA 챗봇 구현 예시
+
+## 메인 애플리케이션 구조 ([main.py](mdc:main.py))
+
+### 필수 임포트
+```python
+import os
+import gradio as gr
+from dotenv import load_dotenv
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain_community.vectorstores import FAISS
+from langchain.chains import RetrievalQA
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+```
+
+### 환경 설정
+```python
+# 환경변수 로드
+load_dotenv()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+# 상수 정의
+DATA_DIR = "data/extracted"
+VECTORSTORE_DIR = "vectorstore"
+CHUNK_SIZE = 1000
+CHUNK_OVERLAP = 200
+```
+
+## 데이터 수집 모듈 예시
+
+### URL 콘텐츠 추출 함수
+```python
+import requests
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin, urlparse
+
+def fetch_url_content(url: str) -> str:
+    """URL에서 텍스트 콘텐츠를 추출합니다."""
+    try:
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        # 스크립트와 스타일 태그 제거
+        for script in soup(["script", "style"]):
+            script.decompose()
+        
+        # 텍스트 추출
+        text = soup.get_text()
+        
+        # 줄바꿈 정리
+        lines = (line.strip() for line in text.splitlines())
+        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+        text = ' '.join(chunk for chunk in chunks if chunk)
+        
+        return text
+    except Exception as e:
+        print(f"URL 콘텐츠 추출 실패: {e}")
+        return ""
+```
+
+### 데이터 저장 함수
+```python
+def save_content_to_file(content: str, filename: str) -> bool:
+    """추출된 콘텐츠를 파일로 저장합니다."""
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        filepath = os.path.join(DATA_DIR, filename)
+        
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(content)
+        
+        print(f"콘텐츠가 {filepath}에 저장되었습니다.")
+        return True
+    except Exception as e:
+        print(f"파일 저장 실패: {e}")
+        return False
+```
+
+## RAG 파이프라인 구현
+
+### 벡터 저장소 생성
+```python
+def create_vectorstore(data_dir: str) -> FAISS:
+    """텍스트 파일들로부터 FAISS 벡터 저장소를 생성합니다."""
+    try:
+        # 모든 텍스트 파일 로드
+        documents = []
+        for filename in os.listdir(data_dir):
+            if filename.endswith('.txt'):
+                filepath = os.path.join(data_dir, filename)
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    documents.append({
+                        'content': content,
+                        'source': filename
+                    })
+        
+        if not documents:
+            raise ValueError("처리할 문서가 없습니다.")
+        
+        # 문서 분할
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=CHUNK_SIZE,
+            chunk_overlap=CHUNK_OVERLAP
+        )
+        
+        texts = []
+        metadatas = []
+        for doc in documents:
+            chunks = text_splitter.split_text(doc['content'])
+            texts.extend(chunks)
+            metadatas.extend([{'source': doc['source']} for _ in chunks])
+        
+        # 임베딩 및 벡터 저장소 생성
+        embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
+        vectorstore = FAISS.from_texts(texts, embeddings, metadatas)
+        
+        # 벡터 저장소 저장
+        os.makedirs(VECTORSTORE_DIR, exist_ok=True)
+        vectorstore.save_local(VECTORSTORE_DIR)
+        
+        return vectorstore
+    
+    except Exception as e:
+        print(f"벡터 저장소 생성 실패: {e}")
+        return None
+```
+
+### QA 체인 설정
+```python
+def setup_qa_chain(vectorstore: FAISS) -> RetrievalQA:
+    """QA 체인을 설정합니다."""
+    try:
+        llm = ChatOpenAI(
+            model_name="gpt-3.5-turbo",
+            temperature=0,
+            openai_api_key=OPENAI_API_KEY
+        )
+        
+        qa_chain = RetrievalQA.from_chain_type(
+            llm=llm,
+            chain_type="stuff",
+            retriever=vectorstore.as_retriever(search_kwargs={"k": 3}),
+            return_source_documents=True
+        )
+        
+        return qa_chain
+    
+    except Exception as e:
+        print(f"QA 체인 설정 실패: {e}")
+        return None
+```
+
+## Gradio UI 구현
+
+### 답변 생성 함수
+```python
+def answer_question(question: str, qa_chain: RetrievalQA) -> tuple[str, str]:
+    """질문에 대한 답변을 생성합니다."""
+    try:
+        if not question.strip():
+            return "질문을 입력해주세요.", ""
+        
+        result = qa_chain({"query": question})
+        answer = result["result"]
+        
+        # 참고 문서 정보
+        sources = []
+        for doc in result["source_documents"]:
+            source = doc.metadata.get("source", "Unknown")
+            content_preview = doc.page_content[:100] + "..."
+            sources.append(f"📄 {source}: {content_preview}")
+        
+        source_info = "\n\n**참고 문서:**\n" + "\n".join(sources) if sources else ""
+        
+        return answer, source_info
+    
+    except Exception as e:
+        return f"답변 생성 중 오류가 발생했습니다: {e}", ""
+```
+
+### Gradio 인터페이스
+```python
+def create_gradio_interface(qa_chain: RetrievalQA):
+    """Gradio 인터페이스를 생성합니다."""
+    
+    def chat_function(message, history):
+        answer, sources = answer_question(message, qa_chain)
+        full_response = answer + sources
+        return full_response
+    
+    # Gradio ChatInterface 사용
+    interface = gr.ChatInterface(
+        fn=chat_function,
+        title="🤖 RAG QA 챗봇",
+        description="업로드된 문서에 대해 질문하세요!",
+        examples=[
+            "주요 내용을 요약해주세요.",
+            "핵심 키워드는 무엇인가요?",
+            "구체적인 설명을 해주세요."
+        ],
+        theme=gr.themes.Soft()
+    )
+    
+    return interface
+```
+
+## 메인 실행 함수
+
+### 전체 플로우 통합
+```python
+def main():
+    """메인 실행 함수"""
+    print("RAG QA 챗봇을 시작합니다...")
+    
+    # 1. 환경변수 확인
+    if not OPENAI_API_KEY:
+        print("❌ OPENAI_API_KEY가 설정되지 않았습니다.")
+        return
+    
+    # 2. 벡터 저장소 로드 또는 생성
+    vectorstore_path = os.path.join(VECTORSTORE_DIR, "index.faiss")
+    
+    if os.path.exists(vectorstore_path):
+        print("✅ 기존 벡터 저장소를 로드합니다...")
+        embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
+        vectorstore = FAISS.load_local(VECTORSTORE_DIR, embeddings)
+    else:
+        print("🔄 새로운 벡터 저장소를 생성합니다...")
+        vectorstore = create_vectorstore(DATA_DIR)
+    
+    if not vectorstore:
+        print("❌ 벡터 저장소 생성/로드에 실패했습니다.")
+        return
+    
+    # 3. QA 체인 설정
+    qa_chain = setup_qa_chain(vectorstore)
+    if not qa_chain:
+        print("❌ QA 체인 설정에 실패했습니다.")
+        return
+    
+    # 4. Gradio 인터페이스 실행
+    interface = create_gradio_interface(qa_chain)
+    interface.launch(
+        server_name="0.0.0.0",
+        server_port=7860,
+        share=False
+    )
+
+if __name__ == "__main__":
+    main()
+```
+
+## 유틸리티 함수들
+
+### 벡터 저장소 업데이트
+```python
+def update_vectorstore(new_url: str):
+    """새로운 URL 콘텐츠로 벡터 저장소를 업데이트합니다."""
+    content = fetch_url_content(new_url)
+    if content:
+        filename = f"content_{len(os.listdir(DATA_DIR)) + 1}.txt"
+        if save_content_to_file(content, filename):
+            # 벡터 저장소 재생성
+            vectorstore = create_vectorstore(DATA_DIR)
+            print("✅ 벡터 저장소가 업데이트되었습니다.")
+            return True
+    return False
+```

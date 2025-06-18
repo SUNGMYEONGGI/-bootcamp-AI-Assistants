@@ -1,0 +1,327 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# 프로젝트 설정 및 환경 구성
+
+## 의존성 관리 ([requirements.txt](mdc:requirements.txt))
+
+### 필수 라이브러리
+```
+# 핵심 프레임워크
+langchain>=0.1.0
+langchain-openai>=0.1.0
+langchain-community>=0.1.0
+
+# AI/ML 라이브러리
+openai>=1.0.0
+faiss-cpu>=1.7.0
+
+# 웹 인터페이스
+gradio>=4.0.0
+
+# 데이터 처리
+beautifulsoup4>=4.12.0
+requests>=2.31.0
+pandas>=2.0.0
+numpy>=1.24.0
+
+# 환경 관리
+python-dotenv>=1.0.0
+
+# 텍스트 처리
+tiktoken>=0.5.0
+unstructured>=0.10.0
+```
+
+### 선택적 라이브러리
+```
+# PDF 처리 (필요시)
+pypdf>=3.0.0
+
+# 고급 파싱 (필요시)
+lxml>=4.9.0
+html5lib>=1.1
+
+# 로깅 및 모니터링 (필요시)
+loguru>=0.7.0
+```
+
+## 환경 변수 설정 ([.env](mdc:.env))
+
+### 필수 환경 변수
+```bash
+# OpenAI API 설정
+OPENAI_API_KEY=your_openai_api_key_here
+
+# 선택적 설정
+OPENAI_MODEL=gpt-3.5-turbo
+EMBEDDING_MODEL=text-embedding-ada-002
+```
+
+### 고급 설정 (선택사항)
+```bash
+# 벡터 저장소 설정
+VECTOR_STORE_TYPE=FAISS
+CHUNK_SIZE=1000
+CHUNK_OVERLAP=200
+
+# UI 설정
+GRADIO_SERVER_NAME=0.0.0.0
+GRADIO_SERVER_PORT=7860
+GRADIO_SHARE=False
+
+# 로깅 설정
+LOG_LEVEL=INFO
+LOG_FILE=logs/qabot.log
+```
+
+## 디렉토리 구조 생성
+
+### 자동 디렉토리 생성 스크립트
+```python
+import os
+
+def create_project_structure():
+    """프로젝트 디렉토리 구조를 생성합니다."""
+    directories = [
+        "data/extracted",
+        "vectorstore",
+        "utils",
+        "logs",
+        "tests",
+        "config"
+    ]
+    
+    for directory in directories:
+        os.makedirs(directory, exist_ok=True)
+        print(f"✅ 디렉토리 생성: {directory}")
+    
+    # .gitignore 파일 생성
+    gitignore_content = """
+# 환경 변수
+.env
+*.env
+
+# 데이터 파일
+data/
+vectorstore/
+logs/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 운영체제
+.DS_Store
+Thumbs.db
+    """.strip()
+    
+    with open('.gitignore', 'w') as f:
+        f.write(gitignore_content)
+    
+    print("✅ .gitignore 파일 생성 완료")
+
+if __name__ == "__main__":
+    create_project_structure()
+```
+
+## 설치 및 실행 스크립트
+
+### setup.py (프로젝트 초기 설정)
+```python
+#!/usr/bin/env python3
+"""
+RAG QA 챗봇 프로젝트 초기 설정 스크립트
+"""
+
+import os
+import subprocess
+import sys
+
+def install_requirements():
+    """requirements.txt의 패키지들을 설치합니다."""
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
+        print("✅ 패키지 설치 완료")
+    except subprocess.CalledProcessError as e:
+        print(f"❌ 패키지 설치 실패: {e}")
+        return False
+    return True
+
+def create_env_file():
+    """환경변수 템플릿 파일을 생성합니다."""
+    env_template = """# OpenAI API 키를 입력하세요
+OPENAI_API_KEY=your_openai_api_key_here
+
+# 선택적 설정
+OPENAI_MODEL=gpt-3.5-turbo
+EMBEDDING_MODEL=text-embedding-ada-002
+CHUNK_SIZE=1000
+CHUNK_OVERLAP=200
+GRADIO_SERVER_PORT=7860
+"""
+    
+    if not os.path.exists('.env'):
+        with open('.env', 'w') as f:
+            f.write(env_template)
+        print("✅ .env 템플릿 파일 생성 완료")
+        print("⚠️  .env 파일에 실제 OpenAI API 키를 입력해주세요!")
+    else:
+        print("ℹ️  .env 파일이 이미 존재합니다.")
+
+def main():
+    print("🚀 RAG QA 챗봇 프로젝트 설정을 시작합니다...")
+    
+    # 1. 디렉토리 구조 생성
+    from create_project_structure import create_project_structure
+    create_project_structure()
+    
+    # 2. 패키지 설치
+    if install_requirements():
+        print("✅ 의존성 설치 완료")
+    else:
+        print("❌ 의존성 설치 실패")
+        return
+    
+    # 3. 환경변수 파일 생성
+    create_env_file()
+    
+    print("🎉 프로젝트 설정이 완료되었습니다!")
+    print("📝 다음 단계:")
+    print("   1. .env 파일에 실제 OpenAI API 키 입력")
+    print("   2. python main.py 실행")
+
+if __name__ == "__main__":
+    main()
+```
+
+### run.py (애플리케이션 실행)
+```python
+#!/usr/bin/env python3
+"""
+RAG QA 챗봇 실행 스크립트
+"""
+
+import os
+import sys
+from dotenv import load_dotenv
+
+def check_environment():
+    """환경 설정을 확인합니다."""
+    load_dotenv()
+    
+    # OpenAI API 키 확인
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key or api_key == "your_openai_api_key_here":
+        print("❌ OPENAI_API_KEY가 설정되지 않았습니다.")
+        print("📝 .env 파일에 실제 API 키를 입력해주세요.")
+        return False
+    
+    # 필요한 디렉토리 확인
+    required_dirs = ["data/extracted", "vectorstore"]
+    for directory in required_dirs:
+        if not os.path.exists(directory):
+            os.makedirs(directory, exist_ok=True)
+            print(f"✅ 디렉토리 생성: {directory}")
+    
+    return True
+
+def main():
+    print("🤖 RAG QA 챗봇을 시작합니다...")
+    
+    if not check_environment():
+        sys.exit(1)
+    
+    # main.py 실행
+    try:
+        from main import main as run_main
+        run_main()
+    except ImportError:
+        print("❌ main.py 파일을 찾을 수 없습니다.")
+        print("📝 main.py 파일을 생성해주세요.")
+    except Exception as e:
+        print(f"❌ 실행 중 오류 발생: {e}")
+
+if __name__ == "__main__":
+    main()
+```
+
+## 개발 환경 설정
+
+### VS Code 설정 (.vscode/settings.json)
+```json
+{
+    "python.defaultInterpreterPath": "./venv/bin/python",
+    "python.linting.enabled": true,
+    "python.linting.pylintEnabled": true,
+    "python.formatting.provider": "black",
+    "python.formatting.blackArgs": ["--line-length=88"],
+    "files.exclude": {
+        "**/__pycache__": true,
+        "**/*.pyc": true,
+        ".env": true,
+        "vectorstore/": true,
+        "data/": true
+    },
+    "python.analysis.extraPaths": ["./utils"]
+}
+```
+
+### Docker 설정 (선택사항)
+
+#### Dockerfile
+```dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# 시스템 의존성 설치
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python 의존성 설치
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 애플리케이션 코드 복사
+COPY . .
+
+# 포트 노출
+EXPOSE 7860
+
+# 애플리케이션 실행
+CMD ["python", "main.py"]
+```
+
+#### docker-compose.yml
+```yaml
+version: '3.8'
+
+services:
+  qabot:
+    build: .
+    ports:
+      - "7860:7860"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - ./data:/app/data
+      - ./vectorstore:/app/vectorstore
+      - ./logs:/app/logs
+    restart: unless-stopped
+```

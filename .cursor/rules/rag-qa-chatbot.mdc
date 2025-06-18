@@ -1,0 +1,101 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# RAG QA 챗봇 프로젝트 가이드
+
+## 프로젝트 개요
+이 프로젝트는 특정 URL의 정보를 수집하여 RAG(Retrieval Augmented Generation) 기술을 활용한 QA 챗봇을 구현합니다.
+
+## 기술 스택
+- **Python**: 메인 개발 언어
+- **Langchain**: RAG 파이프라인 구현
+- **OpenAI API**: 임베딩 및 텍스트 생성
+- **Gradio**: 사용자 인터페이스
+- **FAISS**: 벡터 데이터베이스 (로컬)
+- **BeautifulSoup4**: 웹 콘텐츠 파싱
+- **python-dotenv**: 환경변수 관리
+
+## 프로젝트 구조
+
+```
+qabot/
+├── main.py                 # 메인 애플리케이션 파일
+├── requirements.txt        # Python 의존성
+├── .env                   # 환경변수 (OpenAI API 키)
+├── data/                  # 수집된 데이터 저장
+│   └── extracted/         # 파싱된 텍스트 파일들
+├── vectorstore/           # 벡터 데이터베이스 저장
+└── utils/                 # 유틸리티 함수들
+    ├── data_fetcher.py    # URL 데이터 수집
+    ├── preprocessor.py    # 텍스트 전처리
+    └── rag_pipeline.py    # RAG 파이프라인
+```
+
+## 핵심 구성 요소
+
+### 1. 데이터 수집 및 저장
+- URL에서 웹 콘텐츠 추출
+- HTML 파싱 및 텍스트 정제
+- `data/extracted/` 폴더에 텍스트 파일로 저장
+
+### 2. 임베딩 및 벡터 저장소
+- OpenAI의 `text-embedding-ada-002` 모델 사용
+- FAISS를 사용한 로컬 벡터 데이터베이스
+- 문서 청킹 (chunk_size=1000, chunk_overlap=200)
+
+### 3. RAG 파이프라인
+- 질의 임베딩 → 유사 문서 검색 → 컨텍스트 생성 → 답변 생성
+- `RetrievalQA` 체인 사용
+- GPT-3.5-turbo 또는 GPT-4 모델 활용
+
+### 4. Gradio UI
+- 간단한 채팅 인터페이스
+- 질문 입력 및 답변 표시
+- 참고 문서 출처 표시 (선택사항)
+
+## 필수 환경변수
+```
+OPENAI_API_KEY=your_openai_api_key_here
+```
+
+## 주요 라이브러리 버전
+```
+langchain>=0.1.0
+langchain-openai>=0.1.0
+langchain-community>=0.1.0
+openai>=1.0.0
+gradio>=4.0.0
+faiss-cpu>=1.7.0
+beautifulsoup4>=4.12.0
+python-dotenv>=1.0.0
+```
+
+## 개발 가이드라인
+
+### 코딩 규칙
+1. **한국어 주석**: 모든 함수와 클래스에 한국어 주석 추가
+2. **에러 처리**: try-catch 블록으로 예외 상황 처리
+3. **로깅**: 데이터 수집 및 처리 과정 로깅
+4. **모듈화**: 기능별로 별도 모듈로 분리
+
+### 성능 최적화
+1. **캐싱**: 이미 처리된 데이터는 재사용
+2. **배치 처리**: 대량 문서 임베딩 시 배치 단위로 처리
+3. **메모리 관리**: 대용량 텍스트 처리 시 스트리밍 방식 고려
+
+### 보안
+1. **API 키 보안**: .env 파일 사용, .gitignore에 추가
+2. **입력 검증**: 사용자 입력 검증 및 sanitization
+3. **URL 검증**: 허용된 도메인만 접근 가능하도록 제한
+
+## 테스트 및 검증
+1. **단위 테스트**: 각 모듈별 기능 테스트
+2. **통합 테스트**: 전체 RAG 파이프라인 테스트
+3. **성능 테스트**: 응답 시간 및 정확도 측정
+
+## 배포 고려사항
+1. **Docker**: 컨테이너화를 통한 환경 일관성
+2. **환경 분리**: 개발/테스트/운영 환경 구분
+3. **모니터링**: 시스템 성능 및 사용량 모니터링
